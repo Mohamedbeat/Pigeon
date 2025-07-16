@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"net"
 	"time"
@@ -19,16 +18,11 @@ type Message struct {
 	Timestamp time.Time
 }
 
-type Topic struct {
-	Name        string
-	Messages    []*Message
-	Subscribers map[string]*Peer
-}
-
 type Server struct {
 	Ln        net.Listener
 	Topics    map[string]*Topic
 	Cfg       Config
+	Parser    *Parser
 	Peers     map[string]*Peer
 	addPeerCh chan *Peer
 	rmPeerCh  chan *Peer
@@ -42,11 +36,12 @@ func NewServer(addr string) *Server {
 	if addr == "" {
 		cfg.Addr = DefaultAddr
 	}
-
+	parser := NewParser()
 	return &Server{
 		Cfg:       cfg,
 		Topics:    map[string]*Topic{},
 		Peers:     map[string]*Peer{},
+		Parser:    parser,
 		addPeerCh: make(chan *Peer),
 		rmPeerCh:  make(chan *Peer),
 		quitCh:    make(chan struct{}),
@@ -106,34 +101,22 @@ func (s *Server) FindPeer(id string) (*Peer, error) {
 	}
 	return peer, nil
 }
-func (s *Server) FindTopic(name string) (*Topic, bool) {
-	t, exists := s.Topics[name]
-	if !exists {
-		return &Topic{}, false
-	}
-	return t, true
-}
 
 func (s *Server) FindTopicAndCreate(name string) *Topic {
 	if _, exists := s.Topics[name]; !exists {
 		t := &Topic{
 			Name:        name,
 			Messages:    []*Message{},
-			Subscribers: make(map[string]*Peer),
+			Subscribers: []*Peer{},
+			rrIndex:     0,
 		}
-		s.Topics[t.Name] = t
+		s.Topics[name] = t
 		return t
 	}
 	return s.Topics[name]
 }
 
-func (t *Topic) FindSubscriber(id string) (*Peer, bool) {
-	peer, exists := t.Subscribers[id]
-	return peer, exists
-}
-
-func (t *Topic) Publish(payload []byte) {
-	for _, sub := range t.Subscribers {
-		sub.Conn.Write([]byte(fmt.Sprintf("MESSAGE %s %s\n", t.Name, payload)))
-	}
+func (s *Server) FindTopic(name string) (*Topic, bool) {
+	t, exists := s.Topics[name]
+	return t, exists
 }
